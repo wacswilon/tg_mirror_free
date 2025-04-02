@@ -70,12 +70,6 @@ Após ter preparado o ambiente ao abrir a pasta do script você verá alguns arq
 
 	exec_tg_mirror.bat : Executa o script que baixa as mídias de um canal protegido e envia para um canal só seu.
 	
-## Suporte em caso de duvidas 
-
-Caso tenha alguma dúvida entre nesse grupo :
-
-	https://t.me/+uxnB4OwMYPhiNWMx
-	
 ## Aviso Legal:
 
 O script TG_MIRROR é fornecido "como está" e sem garantias. É sua responsabilidade garantir que você tenha os direitos e permissões necessários para realizar as operações propostas. O autor do script não assume nenhuma responsabilidade por qualquer uso indevido ou danos causados pelo uso deste script.	 		
