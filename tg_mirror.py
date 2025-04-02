@@ -19,7 +19,7 @@ pyrogram.utils.MIN_CHANNEL_ID = -1002999999999
 """ Global """
 session_name = "user"
 video_path = 'downloads'
-CHUNK_SIZE = 2000 * 1024 * 1024  # 2000MB in bytes
+CHUNK_SIZE = 1900 * 1024 * 1024
 
 class BandwidthOptimizer:
     _instance = None
