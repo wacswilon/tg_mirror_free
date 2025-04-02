@@ -54,7 +54,7 @@ Com isso será criado na sua Área de Trabalho uma pasta tg_mirror
 
 Acesse ela pelo terminal com o comando: 
 
-	cd tg_mirror
+	cd tg_mirror_free
 
 Após isso vamos instalar as dependencias com o comando:
 
