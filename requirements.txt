@@ -3,3 +3,5 @@ tgcrypto
 pyfiglet
 colorama
 tqdm
+telethon
+psutil
