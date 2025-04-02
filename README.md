@@ -48,7 +48,7 @@ para isso abra o prompt de comando do seu computador como administrador e redire
 	
 Após isso clone o repositorio do script:
 
-	git clone https://github.com/viniped/tg_mirror.git
+	git clone https://github.com/wacswilon/tg_mirror_free.git
 	
 Com isso será criado na sua Área de Trabalho uma pasta tg_mirror
 
