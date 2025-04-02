@@ -30,10 +30,10 @@ class Banner:
         f = pyfiglet.Figlet(font='slant')
         banner = f.renderText(self.banner)
         print(f'{random.choice(colors)}{banner}{self.n}')
-        print(f'{self.r}  Version: v0.0.2 https://github.com/viniped \n{self.n}')
+        print(f'{self.r}  Version v0.0.1 based on: https://github.com/viniped \n{self.n}')
 
 def show_banner():
-    banner = Banner('TG - Mirror')
+    banner = Banner('TG - Mirror FREE')
     banner.print_banner()
 
 def cache_path():
