@@ -13,13 +13,34 @@ import math
 import socket
 import psutil
 from functools import wraps
+import sqlite3
 
 pyrogram.utils.MIN_CHANNEL_ID = -1002999999999
 
 """ Global """
 session_name = "user"
 video_path = 'downloads'
-CHUNK_SIZE = 1900 * 1024 * 1024
+CHUNK_SIZE = 1900 * 1024 * 1024  # 2000MB in bytes
+
+def init_database():
+    try:
+        conn = sqlite3.connect('update_state.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS update_state (
+                id INTEGER PRIMARY KEY,
+                channel_source TEXT,
+                channel_target TEXT,
+                last_processed_id INTEGER,
+                UNIQUE(channel_source, channel_target)
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Database initialization error: {e}")
+
+init_database()
 
 class BandwidthOptimizer:
     _instance = None
@@ -256,15 +277,44 @@ def get_json_filepath(channel_source, channel_target, chat_title):
     cleaned_filename = clean_filename(filename)
     return os.path.join('download_tasks', cleaned_filename)
 
+def get_last_processed_id(channel_source, channel_target):
+    try:
+        conn = sqlite3.connect('update_state.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT last_processed_id FROM update_state 
+            WHERE channel_source = ? AND channel_target = ?
+        ''', (str(channel_source), str(channel_target)))
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else 0
+    except Exception as e:
+        print(f"Error getting last processed ID: {e}")
+        return 0
+
+def save_last_processed_id(channel_source, channel_target, message_id):
+    try:
+        conn = sqlite3.connect('update_state.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO update_state 
+            (channel_source, channel_target, last_processed_id) 
+            VALUES (?, ?, ?)
+        ''', (str(channel_source), str(channel_target), message_id))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error saving last processed ID: {e}")
+
 def download_and_upload_media_from_channel(choices, channel_source, channel_target, chat_title):
     downloaded_media = []
-    last_processed_id = 0
+    last_processed_id = get_last_processed_id(channel_source, channel_target)
     json_filepath = get_json_filepath(channel_source, channel_target, chat_title)
 
     if os.path.exists(json_filepath):
         with open(json_filepath, "r") as json_file:
             data = json.load(json_file)
-            last_processed_id = data["last_processed_id"] if "last_processed_id" in data else 0
+            last_processed_id = data.get("last_processed_id", last_processed_id)
             print(f"Retomando do ID da próxima mensagem após a última processada: {last_processed_id + 1}")
 
     with Client(session_name) as client:
@@ -278,6 +328,7 @@ def download_and_upload_media_from_channel(choices, channel_source, channel_targ
                 start_processing = True
             else:
                 continue
+                
             file_name = None
             caption_text = message.caption
             duration = 0
@@ -316,68 +367,53 @@ def download_and_upload_media_from_channel(choices, channel_source, channel_targ
                 bar = tqdm(total=file_size, desc="Downloading", leave=False)
                 message = client.get_messages(channel_source, message.id)
                 file_name = client.download_media(message.photo, progress=progress)
-                client.download_media(message.photo, file_name=file_name, progress=lambda c, t: progress(c, t, "Downloading"))
                 client.send_photo(channel_target, file_name, caption=caption_text, progress=lambda c, t: progress(c, t, "Uploading"))
+                bar.close()
 
             if 2 in choices and message.audio:
                 file_size = message.audio.file_size
+                bar = tqdm(total=file_size, desc="Downloading", leave=False)
+                message = client.get_messages(channel_source, message.id)
+                file_name = get_cleaned_file_path(message.audio, video_path)
+                client.download_media(message.audio, file_name=file_name, progress=lambda c, t: progress(c, t, "Downloading"))
                 if file_size > CHUNK_SIZE:
-                    bar = tqdm(total=file_size, desc="Downloading", leave=False)
-                    message = client.get_messages(channel_source, message.id)
-                    file_name = get_cleaned_file_path(message.audio, video_path)
-                    client.download_media(message.audio, file_name=file_name, progress=lambda c, t: progress(c, t, "Downloading"))
                     upload_large_file(client, channel_target, file_name, caption_text, "audio")
                 else:
-                    bar = tqdm(total=file_size, desc="Downloading", leave=False)
-                    message = client.get_messages(channel_source, message.id)
-                    file_name = get_cleaned_file_path(message.audio, video_path)
-                    client.download_media(message.audio, file_name=file_name, progress=lambda c, t: progress(c, t, "Downloading"))
                     client.send_audio(channel_target, file_name, caption=caption_text, progress=lambda c, t: progress(c, t, "Uploading"))
+                bar.close()
 
             if 3 in choices and message.video:
                 file_size = message.video.file_size
+                bar = tqdm(total=file_size, desc="Downloading", leave=False)
+                message = client.get_messages(channel_source, message.id)
+                file_name = get_cleaned_file_path(message.video, video_path)
+                client.download_media(message.video, file_name=file_name, progress=lambda c, t: progress(c, t, "Downloading"))
+                duration = collect_video_duration(file_name)
+                thumbnail_path = extract_thumbnail(file_name)
+                
                 if file_size > CHUNK_SIZE:
-                    bar = tqdm(total=file_size, desc="Downloading", leave=False)
-                    message = client.get_messages(channel_source, message.id)
-                    file_name = get_cleaned_file_path(message.video, video_path)
-                    client.download_media(message.video, file_name=file_name, progress=lambda c, t: progress(c, t, "Downloading"))
-                    duration = collect_video_duration(file_name)
-                    thumbnail_path = extract_thumbnail(file_name)
                     upload_large_file(client, channel_target, file_name, caption_text, "video", duration, thumbnail_path)
-                    if thumbnail_path:
-                        os.remove(thumbnail_path)
                 else:
-                    bar = tqdm(total=file_size, desc="Downloading", leave=False)
-                    message = client.get_messages(channel_source, message.id)
-                    file_name = get_cleaned_file_path(message.video, video_path)
-                    client.download_media(message.video, file_name=file_name, progress=lambda c, t: progress(c, t, "Downloading"))
-                    duration = collect_video_duration(file_name)
-                    thumbnail_path = extract_thumbnail(file_name)
-
                     if thumbnail_path:
-                        bar = tqdm(total=file_size, desc="Uploading ...", leave=False)
-                        message = client.get_messages(channel_source, message.id)                    
-                        client.send_video(channel_target, file_name, caption=caption_text,duration=duration, thumb=thumbnail_path, progress=lambda c, t: progress(c, t, "Uploading"))
+                        client.send_video(channel_target, file_name, caption=caption_text, duration=duration, thumb=thumbnail_path, 
+                                        progress=lambda c, t: progress(c, t, "Uploading"))
                         os.remove(thumbnail_path)
                     else:
-                        bar = tqdm(total=file_size, desc="Uploading ...", leave=False)
-                        message = client.get_messages(channel_source, message.id)
-                        client.send_video(channel_target, file_name, caption=caption_text, duration=duration, progress=lambda c, t: progress(c, t, "Uploading"))
+                        client.send_video(channel_target, file_name, caption=caption_text, duration=duration, 
+                                        progress=lambda c, t: progress(c, t, "Uploading"))
+                bar.close()
 
             if 4 in choices and message.document:
                 file_size = message.document.file_size
+                bar = tqdm(total=file_size, desc="Downloading", leave=False)
+                message = client.get_messages(channel_source, message.id)
+                file_name = get_cleaned_file_path(message.document, video_path)
+                client.download_media(message.document, file_name=file_name, progress=progress)
                 if file_size > CHUNK_SIZE:
-                    bar = tqdm(total=file_size, desc="Downloading", leave=False)
-                    message = client.get_messages(channel_source, message.id)
-                    file_name = get_cleaned_file_path(message.document, video_path)
-                    client.download_media(message.document, file_name=file_name, progress=progress)
                     upload_large_file(client, channel_target, file_name, caption_text, "document")
                 else:
-                    bar = tqdm(total=file_size, desc="Downloading", leave=False)
-                    message = client.get_messages(channel_source, message.id)
-                    file_name = get_cleaned_file_path(message.document, video_path)
-                    client.download_media(message.document, file_name=file_name, progress=progress)
                     client.send_document(channel_target, file_name, caption=caption_text, progress=lambda c, t: progress(c, t, "Uploading"))
+                bar.close()
 
             if 5 in choices and message.text:
                 client.send_message(channel_target, message.text)
@@ -393,15 +429,20 @@ def download_and_upload_media_from_channel(choices, channel_source, channel_targ
                 file_name = get_cleaned_file_path(message.animation, video_path)
                 client.download_media(message.animation, file_name=file_name)
                 client.send_animation(channel_target, file_name)
+                
             if file_name:                            
                 last_processed_id = message.id
+                save_last_processed_id(channel_source, channel_target, last_processed_id)
                 with open(json_filepath, "w") as json_file:
                     json.dump({"last_processed_id": last_processed_id}, json_file)
                     os.system('clear || cls')
-                    print(f"Detalhes da mensagem {message.id} adicionados à lista e mídia / arquivo enviada ao canal de destino.")        
-                os.remove(file_name)
+                    print(f"Detalhes da mensagem {message.id} adicionados à lista e mídia/arquivo enviada ao canal de destino.")        
+                try:
+                    os.remove(file_name)
+                except:
+                    pass
             time.sleep(10)
-        print("Tarefa concluida e log salvo no arquivo JSON.")
+        print("Tarefa concluída e log salvo no arquivo JSON.")
 
 if __name__ == "__main__":
     show_banner()
